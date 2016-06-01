@@ -45,7 +45,7 @@ function get_cookies(user_login_cookie){
             "Referer":"https://openlibrary.org/account/loans",
             "Upgrade-Insecure-Requests":1
         },
-        uri:"https://openlibrary.org/books/OL24373816M/_doread/borrow",//path is gotten as action on READ ONLINE button on loan page
+        uri:"https://openlibrary.org/books/OL24212134M/_doread/borrow",//path is gotten as action on READ ONLINE button on loan page
         body: borrowPostData,
         method:'POST'
     },
@@ -62,7 +62,6 @@ function get_server(location){
       bookPath = parts[3].split('=')[1],//book specific extension path
       olHost = parts[4].split('=')[1], //probs always openlibrary.org
       olAuthUrl = parts[5].split('=')[1]; //probs always https://openlibrary.org/ia_auth/XXX
-      console.log('here '+ id);
     var uuid_cookie = 'br-'+uuid+'='+uuid+';';
     var ol_cookie = 'ol-host='+olHost+';';
     var olAuthUrl_cookie = 'ol-auth-url=' + olAuthUrl+';';
@@ -96,18 +95,20 @@ function get_server(location){
         zlib.gunzip(buffer, function(err, decoded){
           var page_data = decoded.toString();
           var server = page_data.match(/ia\d+/)[0];
+          var item_num = page_data.match(/itemPath=\/(\d+)\/items/)[0];//not sure what itd for but its unique to books, or at least, not constant
           //so now in cookies we have all the cookies we need to get our images, 
           //in id we have the path on the server for the pages
           //and in server we have the base url we need to hit
-          download_pages(server,cookies,id);
+          download_pages(server,cookies,item_num,id);
         });
       });
     });
 }
 
-function download_pages(server,cookies,path){
+function download_pages(server,cookies,item_num,path){
   var status_code = 200;///gonna presume a book has at least one page
-  var cover_url = "https://"+server+".us.archive.org/BookReader/BookReaderPreview.php?id"+path+"&itemPath=%2F12%2Fitems%2F"+path+"&server="+server+".us.archive.org&page=cover_t.jpg";//not sure if all like this 
+  var cover_url = "https://"+server+".us.archive.org/BookReader/BookReaderPreview.php?id="+path+'&'+item_num+'/'+path+"&server="+server+".us.archive.org&page=cover_t.jpg";//not sure if all like this 
+  console.log(cover_url);
   // var pages_url =
   var req = request({
         headers:{
