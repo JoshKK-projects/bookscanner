@@ -2,6 +2,15 @@ var querystring = require('querystring');
 var request = require('request');
 var zlib = require('zlib');
 var env = require('node-env-file');
+var fs = require('fs');
+var readline = require('readline');
+
+var title = "";
+var user_login_cookie;
+var loan;
+var page_num = -1;
+var saved_page = 0;
+
 env(__dirname + '/.env');
 
 var loginPostData = querystring.stringify({
@@ -10,29 +19,83 @@ var loginPostData = querystring.stringify({
     redirect: "https://openlibrary.org/",
     login: "Log In"
 });
+//log in
+login();
+function login(){
+  request({
+      headers:{
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': loginPostData.length,
+          "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Encoding":"gzip, deflate",
+      },
+      uri:"https://openlibrary.org/account/login",
+      body:loginPostData,
+      method:'POST'
+  },
+  function(err,res,body){
+      user_login_cookie = res.headers['set-cookie'][0].split(' ')[0].slice(0,-1);
+      //get loans
+      get_loans();
+      //user logged in now
+  });
+}
+//go to page where loans are
+function get_loans(){
+  request({
+      headers:{
+        "Cookie":user_login_cookie
+      },
+      method:'GET',
+      url: "https://openlibrary.org/account/loans"
+  },
+  function(err,res,body){
+    body = body.replace(/[\r\n]/g," ");
+    var books = body.match(/class=\"book\"(.*?)\/strong/g);
+    var loans = [];
+    var titles = [];
+    for(var book in books){
+      loans.push(books[book].match(/href="(.*?)"/)[1]);
+      titles.push(books[book].match(/<strong>(.*?)<\/strong/)[1].replace('&quot;','\\"'));
+    }
+    // get_cookies(user_login_cookie,loan);
+    for(var i=1;i<=titles.length;i++){
+      console.log(i+" "+titles[i-1]);
+    }
+    choose_book(titles.length,loans,titles);
 
-request({
-    headers:{
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': loginPostData.length,
-        "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Encoding":"gzip, deflate",
-    },
-    uri:"https://openlibrary.org/account/login",
-    body:loginPostData,
-    method:'POST'
-},
-function(err,res,body){
-    var user_login_cookie = res.headers['set-cookie'][0].split(' ')[0].slice(0,-1);
-    get_cookies(user_login_cookie);
-});
+  });
+}
 
-function get_cookies(user_login_cookie){
+ function choose_book(max,loans,titles){
+  const rl = readline.createInterface({
+      input: process.stdin,
+      output:process.stdout
+    });
+    //user chooses book
+    rl.question('Choose loan to scan ', (answer)=>{
+      if(parseInt(answer)<=1){
+        var choice = parseInt(answer)-1;
+        title = titles[choice];
+        loan = loans[choice];
+        get_cookies(loan);
+        rl.close();
+      }
+      else{
+        console.log('Invalid input');
+        choose_book(max,loans,titles);
+      }
+    });
+ } 
+
+//cookies needed to view content
+function get_cookies(loan){
     user_login_cookie = user_login_cookie;
     var borrowPostData = querystring.stringify({
         action:"read",
         ol_host:"openlibrary.org"
     });
+    console.log("https://openlibrary.org"+loan+"/_doread/borrow");
     request({
         headers:{
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -45,15 +108,16 @@ function get_cookies(user_login_cookie){
             "Referer":"https://openlibrary.org/account/loans",
             "Upgrade-Insecure-Requests":1
         },
-        uri:"https://openlibrary.org/books/OL24212134M/_doread/borrow",//path is gotten as action on READ ONLINE button on loan page
+        uri:"https://openlibrary.org"+loan+"/_doread/borrow",//path is gotten as action on READ ONLINE button on loan page
         body: borrowPostData,
         method:'POST'
     },
     function(err,res,body){
+        console.log('got location ' + res.headers.location);
         get_server(res.headers.location);
     });
 }
-
+//server needed to get content from
 function get_server(location){
     var parts = location.split('?')[1].split('&'),
       uuid = parts[0].split('=')[1], //br-uuid=uuid 
@@ -99,21 +163,26 @@ function get_server(location){
           //so now in cookies we have all the cookies we need to get our images, 
           //in id we have the path on the server for the pages
           //and in server we have the base url we need to hit
+          console.log('got cookies');
+          console.log('pagenum ' +  page_num);
           download_pages(server,cookies,item_num,id);
         });
       });
     });
 }
-
+//download the pages
+//example
+//https://ia802604.us.archive.org/BookReader/BookReaderImages.php?zip=/16/items/latheofheavendis00legu/latheofheavendis00legu_jp2.zip&file=latheofheavendis00legu_jp2/latheofheavendis00legu_0017.jp2&scale=1&rotate=0
+//https://ia802604.us.archive.org/BookReader/BookReaderImages.php?zip=/16/items/latheofheavendis00legu/latheofheavendis00legu_jp2.zip&file=latheofheavendis00legu_jp2/latheofheavendis00legu_0000.jp2&scale=1&rotate=0
 function download_pages(server,cookies,item_num,path){
+  if(!fs.existsSync(title)){
+    fs.mkdirSync(title);
+  }
   var status_code = 200;///gonna presume a book has at least one page
   var cover_url = "https://"+server+".us.archive.org/BookReader/BookReaderPreview.php?id="+path+'&'+item_num+'/'+path+"&server="+server+".us.archive.org&page=cover_t.jpg";//not sure if all like this 
-  console.log(cover_url);
-  // var pages_url =
   var req = request({
+        encoding:'binary',
         headers:{
-          "Accept":"image/webp,image/*,*/*;q=0.8",
-          "Accept-Encoding":"gzip, deflate",
           "Accept-Language": "en-US,en;q=0.8",
           "Cache-Control":"max-age=0",
           "Connection":"keep-alive",
@@ -124,13 +193,54 @@ function download_pages(server,cookies,item_num,path){
       },
       method:'GET',
       url:cover_url
+  },function(err,res,body){
+    console.log(title);
+    fs.writeFile(title+'/Cover.jpg',body,'binary',function(){
+      console.log('cover get');
+    });
   });
-  
-  // while(status_code == 200){
-  //   request({
-  //     url:
-  //   });
-  // }
+  var num = item_num.split('=')[1];
+  console.log('saved page is ' + saved_page);
+  if(page_num == -1){
+    page_num = 0;   
+  }
+  else{
+    page_num = saved_page;
+  }
+  console.log('picking up ate page '+page_num);
+  request_page(cookies,server,num,path,page_num);//way too many vars...
+
+}
+
+function request_page(cookies,server,num,path,page_num){
+  console.log('REQUESTING PAGE'+page_num);
+  var page_num_padded = leftpad(page_num);
+  var base_page_url = 'https://'+server+".us.archive.org/BookReader/BookReaderImages.php?zip="+num+'/'+path+'/'+path+'_jp2.zip&file='+path+'_jp2/'+path+'_'+page_num_padded+'.jp2&scale=1&rotate=0';
+  //console.log(base_page_url);
+  request({
+    encoding:'binary',
+    headers:{
+      "Referer":"https://archive.org/stream/"+path,
+      "Cookie":cookies.join(" ")
+    },
+    url:base_page_url
+  },function(err,res,body){
+    console.log(res.statusCode);
+    status_code = res.statusCode;
+    if(status_code == 200){
+      page_num++;
+      saved_page = page_num;
+      console.log(' saved page ' + saved_page);
+      request_page(cookies,server,num,path,page_num);
+      fs.writeFile(title+'/page'+page_num_padded+'.jpg',body,'binary',function(){
+        console.log('wrote page '+page_num);
+      });
+    }
+    else if(status_code == 403){
+      console.log(403);
+      get_cookies(loan);
+    }
+  });
 }
 function leftpad(num){//up to 9999
     var num_str = num.toString();
