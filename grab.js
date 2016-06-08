@@ -175,12 +175,9 @@ function get_server(location){
 //https://ia802604.us.archive.org/BookReader/BookReaderImages.php?zip=/16/items/latheofheavendis00legu/latheofheavendis00legu_jp2.zip&file=latheofheavendis00legu_jp2/latheofheavendis00legu_0017.jp2&scale=1&rotate=0
 //https://ia802604.us.archive.org/BookReader/BookReaderImages.php?zip=/16/items/latheofheavendis00legu/latheofheavendis00legu_jp2.zip&file=latheofheavendis00legu_jp2/latheofheavendis00legu_0000.jp2&scale=1&rotate=0
 function download_pages(server,cookies,item_num,path){
-  if(!fs.existsSync(title)){
-    fs.mkdirSync(title);
-  }
-  var status_code = 200;///gonna presume a book has at least one page
-  var cover_url = "https://"+server+".us.archive.org/BookReader/BookReaderPreview.php?id="+path+'&'+item_num+'/'+path+"&server="+server+".us.archive.org&page=cover_t.jpg";//not sure if all like this 
-  var req = request({
+  console.log('https://'+server+".us.archive.org/BookReader/BookReaderJSIA.php?id="+path+'&'+item_num+'/'+path+'&server='+server+'.us.archive.org&subPrefix='+path);
+
+ var req = request({
         encoding:'binary',
         headers:{
           "Accept-Language": "en-US,en;q=0.8",
@@ -192,23 +189,51 @@ function download_pages(server,cookies,item_num,path){
           "Upgrade-Insecure-Requests":1,
       },
       method:'GET',
-      url:cover_url
+      url:'https://'+server+".us.archive.org/BookReader/BookReaderJSIA.php?id="+path+'&'+item_num+'/'+path+'&server='+server+'.us.archive.org&subPrefix='+path
   },function(err,res,body){
-    console.log(title);
-    fs.writeFile(title+'/Cover.jpg',body,'binary',function(){
-      console.log('cover get');
+    var compressed = body.replace(/\s|\n/g, '');
+    var max_pages = compressed.match(/br\.leafMap=\[.*?,(\d+)\]/)[1];
+
+    if(!fs.existsSync(title)){
+      fs.mkdirSync(title);
+    }
+    var status_code = 200;///gonna presume a book has at least one page
+    var cover_url = "https://"+server+".us.archive.org/BookReader/BookReaderPreview.php?id="+path+'&'+item_num+'/'+path+"&server="+server+".us.archive.org&page=cover_t.jpg";//not sure if all like this 
+   
+    var req = request({
+          encoding:'binary',
+          headers:{
+            "Accept-Language": "en-US,en;q=0.8",
+            "Cache-Control":"max-age=0",
+            "Connection":"keep-alive",
+            "Cookie":cookies.join(" "),
+            "Host":server+".us.archive.org",
+            "Referer":"https://archive.org/stream/"+path,
+            "Upgrade-Insecure-Requests":1,
+        },
+        method:'GET',
+        url:cover_url
+    },function(err,res,body){
+      console.log(title);
+      fs.writeFile(title+'/Cover.jpg',body,'binary',function(){
+        console.log('cover get');
+      });
     });
+    var num = item_num.split('=')[1];
+    console.log('saved page is ' + saved_page);
+    if(page_num == -1){
+      page_num = 0;   
+    }
+    else{
+      page_num = saved_page;
+    }
+    console.log('picking up ate page '+page_num);
+    while(page_num<=max_pages){
+      request_page(cookies,server,num,path,page_num);//way too many vars... 
+      page_num++;   
+    }
+
   });
-  var num = item_num.split('=')[1];
-  console.log('saved page is ' + saved_page);
-  if(page_num == -1){
-    page_num = 0;   
-  }
-  else{
-    page_num = saved_page;
-  }
-  console.log('picking up ate page '+page_num);
-  request_page(cookies,server,num,path,page_num);//way too many vars...
 
 }
 
@@ -228,10 +253,10 @@ function request_page(cookies,server,num,path,page_num){
     console.log(res.statusCode);
     status_code = res.statusCode;
     if(status_code == 200){
-      page_num++;
+      // page_num++;
       saved_page = page_num;
       console.log(' saved page ' + saved_page);
-      request_page(cookies,server,num,path,page_num);
+     // request_page(cookies,server,num,path,page_num);
       fs.writeFile(title+'/page'+page_num_padded+'.jpg',body,'binary',function(){
         console.log('wrote page '+page_num);
       });
@@ -239,6 +264,10 @@ function request_page(cookies,server,num,path,page_num){
     else if(status_code == 403){
       console.log(403);
       get_cookies(loan);
+    }
+    else if(status_code == 504){
+      console.log(504);
+      request_page(cookies,server,num,path,page_num);
     }
   });
 }
