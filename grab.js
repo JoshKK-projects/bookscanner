@@ -10,6 +10,7 @@ var user_login_cookie;
 var loan;
 var page_num = -1;
 var saved_page = 0;
+var tenths = 1; //for chunking requests
 
 env(__dirname + '/.env');
 
@@ -68,13 +69,15 @@ function get_loans(){
 }
 
  function choose_book(max,loans,titles){
+  console.log(loans);
+  console.log(max);
   const rl = readline.createInterface({
       input: process.stdin,
       output:process.stdout
     });
     //user chooses book
     rl.question('Choose loan to scan ', (answer)=>{
-      if(parseInt(answer)<=1){
+      if(parseInt(answer)<=max){
         var choice = parseInt(answer)-1;
         title = titles[choice];
         loan = loans[choice];
@@ -227,17 +230,20 @@ function download_pages(server,cookies,item_num,path){
     else{
       page_num = saved_page;
     }
-    console.log('picking up ate page '+page_num);
-    while(page_num<=max_pages){
-      request_page(cookies,server,num,path,page_num);//way too many vars... 
-      page_num++;   
-    }
+    request_control(cookies,server, num,path,page_num,max_pages);
 
   });
 
 }
 
-function request_page(cookies,server,num,path,page_num){
+function request_control(cookies,server, num,path,page_num,max_pages){
+    while(page_num<=max_pages*.1*tenths){
+      request_page(cookies,server,num,path,page_num,max_pages);//way too many vars... 
+      page_num++;   
+    }
+}
+
+function request_page(cookies,server,num,path,page_num,max_pages){
   console.log('REQUESTING PAGE'+page_num);
   var page_num_padded = leftpad(page_num);
   var base_page_url = 'https://'+server+".us.archive.org/BookReader/BookReaderImages.php?zip="+num+'/'+path+'/'+path+'_jp2.zip&file='+path+'_jp2/'+path+'_'+page_num_padded+'.jp2&scale=1&rotate=0';
@@ -253,12 +259,17 @@ function request_page(cookies,server,num,path,page_num){
     console.log(res.statusCode);
     status_code = res.statusCode;
     if(status_code == 200){
-      // page_num++;
       saved_page = page_num;
-      console.log(' saved page ' + saved_page);
-     // request_page(cookies,server,num,path,page_num);
       fs.writeFile(title+'/page'+page_num_padded+'.jpg',body,'binary',function(){
         console.log('wrote page '+page_num);
+        fs.readdir(title,function(err,files){
+          console.log('files in '+ files.length+' out of '+ max_pages*.1*tenths)
+          if(files.length >= Math.floor(max_pages*.1*tenths) && tenths<10){//starts at 0 so +1, plus cover
+            page_num++;
+            tenths++;
+            request_control(cookies,server,num,path,page_num,max_pages);
+          }
+        })
       });
     }
     else if(status_code == 403){
